@@ -1,0 +1,172 @@
+arguments:
+  parameters:
+    - name: project-url
+      displayName: Git REPO URL
+      hint: Git仓库URL模板
+      value: 'https://github.com/chuangxinyuan/{{workflow.parameters.project-name}}.git'
+
+    - name: project-name
+      value: tl-examples
+      displayName: AI迁移学习代码项目
+      hint: AI迁移学习代码所在的项目名称
+      
+    - name: model-type
+      displayName: 模型类别
+      hint: 从模型类别列表中选择一个类别
+      type: select.select
+      value: yolov5
+      options:
+        - name: yolov5
+          value: yolov5
+        - name: yolov6
+          value: yolov6
+          
+    - name: model-name
+      displayName: 模型名称
+      hint: 从模型列表中选择一个模型
+      type: select.select
+      value: yolov5n
+      options:
+        - name: yolov5n
+          value: yolov5n
+        - name: yolov5s
+          value: yolov5s
+        - name: yolov5m
+          value: yolov5m          
+        - name: yolov5l
+          value: yolov5l
+        - name: yolov5x
+          value: yolov5x
+        - name: yolov6n
+          value: yolov6n
+        - name: yolov6t
+          value: yolov6t
+        - name: yolov6s
+          value: yolov6s
+        - name: yolov6m
+          value: yolov6m   
+        - name: yolov6l
+          value: yolov6l
+          
+    - name: pretrained-weights-url
+      displayName: Pretrainde Weights URL
+      hint: 预训练权重下载地址
+      value: 'https://testmodel.blob.core.chinacloudapi.cn/pretrained/{{workflow.parameters.model-name}}.pt'
+      
+    - name: dataset-url
+      displayName: DataSet URL
+      hint: 数据集下载地址
+      value: 'https://testdatasets.blob.core.chinacloudapi.cn/datasets/{{workflow.parameters.dataset-name}}.zip'
+
+    - name: dataset-name
+      value: tunas_dataset
+      displayName: 数据集
+      hint: 数据集名称
+      type: select.select
+      options:
+        - name: tunas_dataset
+          value: tunas_dataset
+      
+    - displayName: 资源池
+      hint: 运行训练POD所在的资源池
+      name: sys-node-pool
+      required: true
+      type: select.nodepool
+      value: 'default'
+      visibility: public
+      
+    - name: device
+      displayName: 训练选择的设备
+      hint: 训练过程中选用的设备
+      type: select.select
+      value: '0'
+      options:
+        - name: 'cpu'
+          value: 'cpu'
+        - name: 'gpu:0'
+          value: '0'         
+          
+    - name: batch-size
+      displayName: 训练batch_size
+      hint: 训练过程中的批大小
+      value: 16
+
+          
+    - name: epochs
+      displayName: 训练总epoch数目
+      hint: 训练总的epoch数目
+      value: 100
+
+          
+entrypoint: main
+templates:
+  - name: main
+    dag:
+      tasks:
+        - name: train-model
+          template: train-model
+
+  - name: train-model
+    script:
+      image: 'onepanel/dl:0.17.0'
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          nvidia.com/gpu: 1 
+          cpu: 4
+          memory: 32Gi
+        limits:
+          nvidia.com/gpu: 1 
+          cpu: 4
+          memory: 32Gi          
+      workingDir: '/mnt/{{workflow.parameters.project-name}}/tunas'
+      volumeMounts:
+        - name: data
+          mountPath: '/mnt/{{workflow.parameters.project-name}}/data/runs/train'
+        - mountPath: /dev/shm
+          name: cache-volume
+      command:
+        - sh
+        - -c
+      args:
+       - |
+          mkdir ../data/{{workflow.parameters.dataset-name}} && \
+          wget {{workflow.parameters.dataset-url}} && \
+          unzip {{workflow.parameters.dataset-name}}.zip  -d ../data/{{workflow.parameters.dataset-name}}/&& \
+          wget {{workflow.parameters.pretrained-weights-url}} -P ../data/weights/ && \
+          mkdir ../data/pkgs && \
+          wget https://testdatasets.blob.core.chinacloudapi.cn/pkgs/torch-1.8.0+cu101-cp36-cp36m-linux_x86_64.whl -P ../data/pkgs/ && \
+          pip3 install ../data/pkgs/torch-1.8.0+cu101-cp36-cp36m-linux_x86_64.whl && \
+          wget https://testdatasets.blob.core.chinacloudapi.cn/pkgs/torchvision-0.9.0+cu101-cp36-cp36m-linux_x86_64.whl -P ../data/pkgs/ && \
+          pip3 install ../data/pkgs/torchvision-0.9.0+cu101-cp36-cp36m-linux_x86_64.whl && \          
+          pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple -r  requirements.txt && \
+          chmod +x ./{{workflow.parameters.model-type}}_train.sh && \
+          ./{{workflow.parameters.model-type}}_train.sh {{workflow.parameters.model-name}} {{workflow.parameters.device}} {{workflow.parameters.batch-size}} {{workflow.parameters.epochs}}
+          
+    inputs:
+      artifacts:
+        - git:
+            repo: '{{workflow.parameters.project-url}}'
+          name: src
+          path: '/mnt/{{workflow.parameters.project-name}}'
+          
+    outputs:
+      artifacts:
+          - name: logs_out
+            path: '/mnt/{{workflow.parameters.project-name}}/data/runs/train'
+            
+volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+
+volumes:
+  - emptyDir:
+      medium: Memory
+      sizeLimit: 256Mi
+    name: cache-volume
