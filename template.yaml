@@ -6,7 +6,7 @@ arguments:
       value: 'https://github.com/chuangxinyuan/{{workflow.parameters.project-name}}.git'
 
     - name: project-name
-      value: tl-examples
+      value: tl-templates
       displayName: AI迁移学习代码项目
       hint: AI迁移学习代码所在的项目名称
       
